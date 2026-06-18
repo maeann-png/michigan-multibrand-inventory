@@ -309,6 +309,32 @@
 .aging-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:1px; background:var(--border);
   border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; margin-bottom:36px; }
 
+/* --- revision additions: brand buttons, aging buttons/cards, growth badge --- */
+.brand-btns { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+.brand-btn { display:inline-flex; align-items:center; gap:7px; font-family:'Space Grotesk',sans-serif; font-weight:500;
+  font-size:12.5px; letter-spacing:.01em; padding:8px 16px; background:var(--bg-elev); border:1.5px solid;
+  border-radius:999px; cursor:pointer; transition:all .15s var(--ease); }
+.brand-btn:hover { transform:translateY(-1px); filter:brightness(1.08); }
+.brand-btn .brand-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; box-shadow:0 0 0 1px rgba(0,0,0,.15) inset; }
+.brand-btn-active { font-weight:600; box-shadow:0 2px 10px -2px rgba(0,0,0,.4); }
+.brand-btn-active .brand-dot { box-shadow:0 0 0 1px rgba(0,0,0,.25) inset; background:rgba(0,0,0,.35) !important; }
+
+.aging-btns { display:flex; gap:5px; }
+.aging-btn { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.04em; padding:8px 11px;
+  background:var(--bg-elev); border:1.5px solid; border-radius:var(--radius-sm); cursor:pointer;
+  transition:all .15s var(--ease); white-space:nowrap; }
+.aging-btn:hover { filter:brightness(1.12); }
+.aging-btn-active { font-weight:700; }
+
+.aging-card { text-align:left; background:var(--bg-elev); border:none; padding:18px 20px; cursor:pointer;
+  display:flex; flex-direction:column; gap:5px; transition:background .15s var(--ease); }
+.aging-card:hover { background:var(--bg-elev-2); }
+.aging-card-active { background:var(--bg-elev-2); box-shadow:inset 0 0 0 1px var(--accent-dim); }
+.aging-grid .kpi { border-radius:0; }
+
+.growth-badge { font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; letter-spacing:.03em;
+  display:inline-flex; align-items:center; gap:6px; }
+
 </style>
 </head>
 <body>
@@ -339,6 +365,7 @@ if (typeof Recharts === 'undefined') {
 }
 const {
   ResponsiveContainer,
+  ComposedChart,
   LineChart,
   Line,
   BarChart,
@@ -415,15 +442,54 @@ const EXCLUDED_STATUS = {
 // (Hyman=orange, Chill=blue, Covert=electric yellow, Homiez=hot pink,
 // Value Pak=light). Swap these exact hex values once Towbey sends the brand sheet.
 const BRAND_COLORS = {
-  "Hyman": "#e0a85a",
-  "Chill Medicated": "#5aa9e0",
-  "Covert Cups": "#e8e54a",
-  "Homiez": "#e07594",
-  "Value Pak Distro": "#cfe8d6",
+  "Hyman": "#ef8c3a",
+  // orange
+  "Chill Medicated": "#3f9ae0",
+  // blue
+  "Covert Cups": "#eaf031",
+  // electric yellow
+  "Homiez": "#ff479e",
+  // hot pink
+  "Value Pak Distro": "#f4f4f4",
+  // white
   "100 Shafer": "#68ba7f",
-  "Other Brands": "#8fcba0"
+  // (unspecified) green
+  "Other Brands": "#9dc1a9"
 };
-const brandColor = b => BRAND_COLORS[b] || "#8fcba0";
+const brandColor = b => BRAND_COLORS[b] || "#9dc1a9";
+const BRAND_LABEL = {
+  "Value Pak Distro": "Value Pak"
+};
+const brandLabel = b => BRAND_LABEL[b] || b;
+// readable text color on a given fill
+const textOn = hex => {
+  const c = String(hex).replace('#', '');
+  if (c.length < 6) return '#15241a';
+  const r = parseInt(c.slice(0, 2), 16),
+    g = parseInt(c.slice(2, 4), 16),
+    b = parseInt(c.slice(4, 6), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#15241a' : '#ffffff';
+};
+
+// Aging color scheme (client spec): Current green, 31-60 yellow, 61-90 orange, 91+ red
+const AGING = [{
+  key: 'current',
+  label: 'Current',
+  color: '#68ba7f'
+}, {
+  key: 'b31',
+  label: '31\u201360 days',
+  color: '#e8d83a'
+}, {
+  key: 'b61',
+  label: '61\u201390 days',
+  color: '#ef8c3a'
+}, {
+  key: 'b91',
+  label: '91+ days',
+  color: '#e2554f'
+}];
+const agingBucket = days => days <= 30 ? AGING[0] : days <= 60 ? AGING[1] : days <= 90 ? AGING[2] : AGING[3];
 const SERIES_COLORS = ["#68ba7f", "#5aa9e0", "#e0a85a", "#e07594", "#e8e54a", "#8fcba0", "#cfe8d6", "#4d9461"];
 const isPrimaryName = b => PRIMARY_BRANDS.includes((b || "").trim());
 const otherName = raw => {
@@ -653,6 +719,227 @@ function Empty({
   }, /*#__PURE__*/React.createElement("h2", null, title), children);
 }
 
+/* ---- Scope cards (External / Internal / Total) ---------------------- */
+function ScopeCards({
+  scope,
+  setScope,
+  values,
+  fmt
+}) {
+  const f = fmt || fmtMoney;
+  const items = [['external', 'External'], ['internal', 'Internal'], ['total', 'Total']];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "scope-cards"
+  }, items.map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: 'scope-card' + (k === 'internal' ? ' scope-internal' : '') + (scope === k ? ' active' : ''),
+    onClick: () => setScope(k)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "scope-label"
+  }, l), /*#__PURE__*/React.createElement("div", {
+    className: "scope-value tabular"
+  }, f(values[k] || 0)))));
+}
+
+/* ---- Colored brand filter buttons ----------------------------------- */
+function BrandButtons({
+  brands,
+  value,
+  onChange
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "brand-btns"
+  }, brands.map(b => {
+    const active = value === b;
+    const c = brandColor(b);
+    return /*#__PURE__*/React.createElement("button", {
+      key: b,
+      className: 'brand-btn' + (active ? ' brand-btn-active' : ''),
+      style: active ? {
+        background: c,
+        borderColor: c,
+        color: textOn(c)
+      } : {
+        borderColor: c,
+        color: c
+      },
+      onClick: () => onChange(active ? '' : b)
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "brand-dot",
+      style: {
+        background: c
+      }
+    }), brandLabel(b));
+  }));
+}
+
+/* ---- Reusable revenue-over-time chart (Day/Month/Year + growth trend) */
+function linregTrend(pts) {
+  const n = pts.length;
+  if (n < 2) return pts.map(p => ({
+    ...p,
+    trend: p.value
+  }));
+  let sx = 0,
+    sy = 0,
+    sxy = 0,
+    sxx = 0;
+  pts.forEach((p, i) => {
+    sx += i;
+    sy += p.value;
+    sxy += i * p.value;
+    sxx += i * i;
+  });
+  const den = n * sxx - sx * sx || 1;
+  const b = (n * sxy - sx * sy) / den,
+    a = (sy - b * sx) / n;
+  return pts.map((p, i) => ({
+    ...p,
+    trend: Math.max(0, a + b * i)
+  }));
+}
+function TimeSeriesChart({
+  title,
+  em,
+  data,
+  grouping,
+  setGrouping,
+  metricLabel
+}) {
+  const ml = metricLabel || 'Revenue';
+  const withTrend = linregTrend(data);
+  const first = data.length ? data[0].value : 0,
+    last = data.length ? data[data.length - 1].value : 0;
+  const growth = first ? (last - first) / first * 100 : null;
+  return /*#__PURE__*/React.createElement("section", {
+    className: "section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "section-header"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "section-title"
+  }, title, " ", em && /*#__PURE__*/React.createElement("em", null, em)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14
+    }
+  }, growth != null && /*#__PURE__*/React.createElement("span", {
+    className: "growth-badge",
+    style: {
+      color: growth >= 0 ? 'var(--accent)' : '#e2554f'
+    }
+  }, growth >= 0 ? '\u25b2' : '\u25bc', " ", Math.abs(growth).toFixed(1), "% ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: 'var(--text-faint)'
+    }
+  }, "trend")), /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, [['day', 'Day'], ['month', 'Month'], ['year', 'Year']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: 'seg-btn' + (grouping === k ? ' seg-active' : ''),
+    onClick: () => setGrouping(k)
+  }, l))))), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      height: 320
+    }
+  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
+    width: "100%",
+    height: "100%"
+  }, /*#__PURE__*/React.createElement(ComposedChart, {
+    data: withTrend,
+    margin: {
+      top: 12,
+      right: 12,
+      left: 4,
+      bottom: 0
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: "tsg",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "0%",
+    stopColor: "var(--accent)",
+    stopOpacity: 0.32
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "100%",
+    stopColor: "var(--accent)",
+    stopOpacity: 0
+  }))), /*#__PURE__*/React.createElement(CartesianGrid, {
+    stroke: "var(--border-soft)",
+    strokeDasharray: "2 2",
+    vertical: false
+  }), /*#__PURE__*/React.createElement(XAxis, {
+    dataKey: "period",
+    stroke: "var(--text-faint)",
+    tick: {
+      fontSize: 11,
+      fontFamily: 'JetBrains Mono'
+    },
+    tickLine: false,
+    axisLine: {
+      stroke: 'var(--border)'
+    }
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    stroke: "var(--text-faint)",
+    tick: {
+      fontSize: 11,
+      fontFamily: 'JetBrains Mono'
+    },
+    tickFormatter: fmtMoney,
+    tickLine: false,
+    axisLine: false
+  }), /*#__PURE__*/React.createElement(Tooltip, {
+    contentStyle: {
+      background: 'var(--bg-elev)',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      fontSize: 12
+    },
+    formatter: (v, n) => [fmtMoneyFull(v), n === 'trend' ? 'Trend' : ml]
+  }), grouping === 'year' ? /*#__PURE__*/React.createElement(Bar, {
+    dataKey: "value",
+    name: ml,
+    radius: [3, 3, 0, 0]
+  }, withTrend.map((_, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: i,
+    fill: SERIES_COLORS[i % SERIES_COLORS.length]
+  }))) : /*#__PURE__*/React.createElement(Area, {
+    type: "monotone",
+    dataKey: "value",
+    name: ml,
+    stroke: "var(--accent)",
+    strokeWidth: 2,
+    fill: "url(#tsg)"
+  }), /*#__PURE__*/React.createElement(Line, {
+    type: "monotone",
+    dataKey: "trend",
+    name: "trend",
+    stroke: "var(--warm)",
+    strokeWidth: 1.5,
+    strokeDasharray: "5 4",
+    dot: false
+  })))));
+}
+
+// Generic period grouping for a row set: returns [{period,value}] sorted.
+const groupByPeriod = (rows, grouping, valueOf) => {
+  const m = {};
+  rows.forEach(r => {
+    if (!r._date) return;
+    let k;
+    if (grouping === 'day') k = ymd(r._date);else if (grouping === 'year') k = String(r._date.getFullYear());else k = r._date.getFullYear() + '-' + String(r._date.getMonth() + 1).padStart(2, '0');
+    m[k] = (m[k] || 0) + valueOf(r);
+  });
+  return Object.entries(m).map(([period, value]) => ({
+    period,
+    value
+  })).sort((a, b) => a.period.localeCompare(b.period));
+};
+
 /* =====================================================================
    INVENTORY DASHBOARD  (uses data.inventory array)
    ===================================================================== */
@@ -740,7 +1027,7 @@ function InventoryDashboard({
     };
   }), [raw]);
   const distinct = useMemo(() => ({
-    brands: [...new Set(items.map(p => p.brand).filter(Boolean))].sort(),
+    brands: PRIMARY_BRANDS.filter(b => items.some(p => p.brand === b)),
     statuses: [...new Set(items.map(p => p.status).filter(Boolean))].sort()
   }), [items]);
   const filtered = useMemo(() => items.filter(p => {
@@ -818,21 +1105,13 @@ function InventoryDashboard({
     subtitle: "on hand",
     fetchedAt: asOf,
     right: /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.skus)), " SKUs")
+  }), /*#__PURE__*/React.createElement(BrandButtons, {
+    brands: distinct.brands,
+    value: filters.brand,
+    onChange: b => upd('brand', b)
   }), /*#__PURE__*/React.createElement("div", {
     className: "filters"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "filter-group"
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "filter-label"
-  }, "Brand"), /*#__PURE__*/React.createElement("select", {
-    className: "filter-select",
-    value: filters.brand,
-    onChange: e => upd('brand', e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "All"), distinct.brands.map(b => /*#__PURE__*/React.createElement("option", {
-    key: b
-  }, b)))), /*#__PURE__*/React.createElement("div", {
     className: "filter-group"
   }, /*#__PURE__*/React.createElement("label", {
     className: "filter-label"
