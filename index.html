@@ -12,8 +12,8 @@
   :root {
     /* Medfarms · Michigan — "Lavender" light theme, purple accents */
     --bg: #DAB1DA;             /* page — light lavender (client spec) */
-    --bg-elev: #f1f1f4;        /* cards — light gray */
-    --bg-elev-2: #e7e7ec;      /* table headers / hover surfaces — gray */
+    --bg-elev: #e2e1e8;        /* cards — gray (darker so white VPD shows) */
+    --bg-elev-2: #d5d4dd;      /* table headers / hover surfaces — gray */
     --border: #c39ad2;
     --border-soft: #e4d2ee;
     --text: #2c1b3d;           /* deep purple-black */
@@ -423,6 +423,21 @@
   .scope-value { font-size: 40px; }
 }
 
+/* pagination */
+.pager { display:flex; align-items:center; justify-content:center; gap:16px; padding:14px 16px; border-top:1px solid var(--border); }
+.pager-btn { font-family:'JetBrains Mono',monospace; font-size:12px; padding:7px 16px; background:var(--bg-elev-2);
+  border:1.5px solid var(--accent-dim); color:var(--accent); border-radius:999px; cursor:pointer; transition:all .15s var(--ease); }
+.pager-btn:hover:not(:disabled) { background:var(--accent); color:#fff; border-color:var(--accent); }
+.pager-btn:disabled { opacity:.4; cursor:default; }
+.pager-info { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); letter-spacing:.04em; }
+.inv-clickable tbody tr { cursor:pointer; }
+.inv-clickable tbody tr:hover td { background:rgba(168,45,138,0.07); }
+.focus-banner { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg-elev);
+  border:1px solid var(--accent-dim); border-left:3px solid var(--accent); border-radius:var(--radius-sm);
+  padding:10px 16px; margin-bottom:16px; font-size:13px; }
+.focus-clear { font-family:'JetBrains Mono',monospace; font-size:11px; padding:5px 12px; background:var(--accent);
+  color:#fff; border:none; border-radius:999px; cursor:pointer; letter-spacing:.06em; }
+
 </style>
 </head>
 <body>
@@ -673,16 +688,15 @@ function Topbar({
     className: "brand-mark",
     style: {
       alignItems: 'center',
-      gap: 14
+      gap: 16
     }
   }, /*#__PURE__*/React.createElement("img", {
     src: "logo.png",
     alt: "MEDfarms",
     style: {
-      height: 46,
+      height: 50,
       width: 'auto',
-      flexShrink: 0,
-      borderRadius: 8
+      flexShrink: 0
     },
     onError: e => {
       e.target.style.display = 'none';
@@ -691,13 +705,9 @@ function Topbar({
     className: "brand-name",
     style: {
       lineHeight: 1,
-      fontSize: 30
+      fontSize: 27
     }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "brand-grad"
-  }, "MEDFarms"), /*#__PURE__*/React.createElement("span", {
-    className: "brand-sep"
-  }, "\xB7"), /*#__PURE__*/React.createElement("em", {
+  }, /*#__PURE__*/React.createElement("em", {
     style: {
       color: 'var(--text-dim)',
       fontStyle: 'italic',
@@ -1113,6 +1123,50 @@ const categorize = r => {
   return 'Other';
 };
 
+/* ---- Pagination ----------------------------------------------------- */
+function usePager(items, perPage) {
+  const [page, setPage] = useState(0);
+  const pp = perPage || 15;
+  const pages = Math.max(1, Math.ceil(items.length / pp));
+  const p = Math.min(page, pages - 1);
+  useEffect(() => {
+    if (page > pages - 1) setPage(0);
+  }, [items.length]);
+  return {
+    slice: items.slice(p * pp, p * pp + pp),
+    page: p,
+    pages,
+    setPage,
+    total: items.length,
+    perPage: pp
+  };
+}
+function Pager({
+  pager
+}) {
+  const {
+    page,
+    pages,
+    setPage,
+    total,
+    perPage
+  } = pager;
+  if (pages <= 1) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pager"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "pager-btn",
+    disabled: page === 0,
+    onClick: () => setPage(page - 1)
+  }, "\u2039 Prev"), /*#__PURE__*/React.createElement("span", {
+    className: "pager-info"
+  }, total === 0 ? '0' : page * perPage + 1 + '–' + Math.min((page + 1) * perPage, total), " of ", fmtNum(total), " \xB7 page ", page + 1, "/", pages), /*#__PURE__*/React.createElement("button", {
+    className: "pager-btn",
+    disabled: page >= pages - 1,
+    onClick: () => setPage(page + 1)
+  }, "Next \u203A"));
+}
+
 /* =====================================================================
    INVENTORY DASHBOARD  (uses data.inventory array)
    ===================================================================== */
@@ -1410,6 +1464,7 @@ function InventoryDashboard({
     dataKey: "available",
     name: "Available",
     stackId: "a",
+    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)',
     radius: [0, 0, 0, 0]
   }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: i,
