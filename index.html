@@ -593,6 +593,13 @@ const AGING = [{
   color: '#d6433f'
 }];
 const agingBucket = days => days <= 30 ? AGING[0] : days <= 60 ? AGING[1] : days <= 90 ? AGING[2] : AGING[3];
+// "Last Order Date" segment labels (same buckets/colors as AGING)
+const RECENCY_LABEL = {
+  current: '30 days',
+  b31: '60 days',
+  b61: '90 days',
+  b91: '90+ days'
+};
 const SERIES_COLORS = ["#4b2e83", "#6a2f9e", "#8e2f9e", "#a82d8a", "#c23a5e", "#7c3aed", "#b0317a", "#c084fc"];
 const isPrimaryName = b => PRIMARY_BRANDS.includes((b || "").trim());
 const otherName = raw => {
@@ -1234,7 +1241,7 @@ function InventoryDashboard({
   setFilters
 }) {
   const raw = data.inventory || [];
-  const asOf = useMemo(() => parseDate(data.fetched_at) || new Date(), [data]);
+  const asOf = useMemo(() => data.fetched_at ? new Date(data.fetched_at) : new Date(), [data]);
   const items = useMemo(() => raw.map(p => {
     const onHand = +p.inventory || 0;
     const reserved = +p.reserved || 0;
