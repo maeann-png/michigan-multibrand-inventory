@@ -1264,7 +1264,9 @@ function InventoryDashboard({
   }), [items]);
   const filtered = useMemo(() => items.filter(p => {
     if (filters.brand && p.brand !== filters.brand) return false;
-    if (filters.status && p.status !== filters.status) return false;
+    if (filters.status === 'Reserved') {
+      if (p.reserved <= 0) return false;
+    } else if (filters.status && p.status !== filters.status) return false;
     if (filters.stock === 'in' && p.available <= 0) return false;
     if (filters.stock === 'out' && p.available > 0) return false;
     if (filters.search) {
@@ -1359,7 +1361,9 @@ function InventoryDashboard({
     value: ""
   }, "All"), distinct.statuses.map(b => /*#__PURE__*/React.createElement("option", {
     key: b
-  }, b)))), /*#__PURE__*/React.createElement("div", {
+  }, b)), /*#__PURE__*/React.createElement("option", {
+    value: "Reserved"
+  }, "Reserved"))), /*#__PURE__*/React.createElement("div", {
     className: "filter-group"
   }, /*#__PURE__*/React.createElement("label", {
     className: "filter-label"
