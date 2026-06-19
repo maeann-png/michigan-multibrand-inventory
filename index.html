@@ -1240,6 +1240,7 @@ function InventoryDashboard({
   filters,
   setFilters
 }) {
+  const [invMetric, setInvMetric] = useState('onhand');
   const raw = data.inventory || [];
   const asOf = useMemo(() => data.fetched_at ? new Date(data.fetched_at) : new Date(), [data]);
   const items = useMemo(() => raw.map(p => {
@@ -1415,11 +1416,17 @@ function InventoryDashboard({
     color: kpis.oos ? 'var(--rose)' : null
   })), /*#__PURE__*/React.createElement("section", {
     className: "section"
-  }, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "On hand",
-    em: "by brand",
-    meta: byBrand.length + ' brands'
-  }), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "section-header"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "section-title"
+  }, invMetric === 'reserved' ? 'Reserved' : invMetric === 'available' ? 'Available' : 'On hand', " ", /*#__PURE__*/React.createElement("em", null, "by brand")), /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, [['onhand', 'On hand'], ['available', 'Available'], ['reserved', 'Reserved']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: 'seg-btn' + (invMetric === k ? ' seg-active' : ''),
+    onClick: () => setInvMetric(k)
+  }, l)))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       height: 300
@@ -1428,7 +1435,7 @@ function InventoryDashboard({
     width: "100%",
     height: "100%"
   }, /*#__PURE__*/React.createElement(BarChart, {
-    data: byBrand,
+    data: invMetric === 'onhand' ? byBrand : byBrand.slice().sort((a, b) => b[invMetric] - a[invMetric]),
     margin: {
       top: 12,
       right: 12,
@@ -1471,72 +1478,85 @@ function InventoryDashboard({
       fontSize: 11,
       fontFamily: 'JetBrains Mono'
     }
-  }), /*#__PURE__*/React.createElement(Bar, {
+  }), invMetric === 'onhand' ? [/*#__PURE__*/React.createElement(Bar, {
+    key: "a",
     dataKey: "available",
     name: "Available",
     stackId: "a",
-    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)',
-    radius: [0, 0, 0, 0]
+    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)'
   }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: i,
     fill: brandColor(d.name)
   }))), /*#__PURE__*/React.createElement(Bar, {
+    key: "r",
     dataKey: "reserved",
     name: "Reserved",
     stackId: "a",
     fill: "var(--text-faint)",
     radius: [3, 3, 0, 0]
-  }))))), /*#__PURE__*/React.createElement("section", {
-    className: "section"
-  }, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "Product",
-    em: "inventory",
-    meta: fmtNum(filtered.length) + ' SKUs'
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "card",
-    style: {
-      padding: 0,
-      overflow: 'hidden'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      overflowX: 'auto',
-      maxHeight: 560
-    }
-  }, /*#__PURE__*/React.createElement("table", {
-    className: "data-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Product"), /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", null, "SKU"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Available"))), /*#__PURE__*/React.createElement("tbody", null, filtered.slice().sort((a, b) => b.onHand - a.onHand).slice(0, 250).map((p, i) => /*#__PURE__*/React.createElement("tr", {
-    key: i
-  }, /*#__PURE__*/React.createElement("td", null, p.name), /*#__PURE__*/React.createElement("td", {
-    style: {
-      color: brandColor(p.brand)
-    }
-  }, p.brand), /*#__PURE__*/React.createElement("td", {
-    className: "dim font-mono",
-    style: {
-      fontSize: 11
-    }
-  }, p.sku), /*#__PURE__*/React.createElement("td", {
-    className: "dim"
-  }, p.status), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, fmtNum(p.onHand)), /*#__PURE__*/React.createElement("td", {
-    className: "num dim"
-  }, fmtNum(p.reserved)), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, /*#__PURE__*/React.createElement("strong", {
-    style: {
-      color: p.available <= 0 ? 'var(--rose)' : 'var(--text)'
-    }
-  }, fmtNum(p.available)))))))), filtered.length > 250 && /*#__PURE__*/React.createElement("div", {
-    className: "table-foot"
-  }, "Showing 250 of ", fmtNum(filtered.length), " SKUs"))), /*#__PURE__*/React.createElement(StickyFooter, {
+  })] : /*#__PURE__*/React.createElement(Bar, {
+    dataKey: invMetric,
+    name: invMetric === 'reserved' ? 'Reserved' : 'Available',
+    radius: [3, 3, 0, 0],
+    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)'
+  }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: i,
+    fill: brandColor(d.name)
+  }))))))), (() => {
+    const mk = invMetric === 'reserved' ? 'reserved' : invMetric === 'available' ? 'available' : 'onHand';
+    const tableRows = filtered.filter(p => invMetric === 'onhand' ? true : p[mk] > 0).slice().sort((a, b) => b[mk] - a[mk]);
+    return /*#__PURE__*/React.createElement("section", {
+      className: "section"
+    }, /*#__PURE__*/React.createElement(SectionHeader, {
+      title: "Product",
+      em: "inventory",
+      meta: fmtNum(tableRows.length) + ' SKUs' + (invMetric !== 'onhand' ? ' \u00b7 ' + (invMetric === 'reserved' ? 'reserved' : 'available') : '')
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "card",
+      style: {
+        padding: 0,
+        overflow: 'hidden'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        overflowX: 'auto',
+        maxHeight: 560
+      }
+    }, /*#__PURE__*/React.createElement("table", {
+      className: "data-table"
+    }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Product"), /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", null, "SKU"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "On Hand"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "Available"))), /*#__PURE__*/React.createElement("tbody", null, tableRows.slice(0, 250).map((p, i) => /*#__PURE__*/React.createElement("tr", {
+      key: i
+    }, /*#__PURE__*/React.createElement("td", null, p.name), /*#__PURE__*/React.createElement("td", {
+      style: {
+        color: brandColor(p.brand)
+      }
+    }, p.brand), /*#__PURE__*/React.createElement("td", {
+      className: "dim font-mono",
+      style: {
+        fontSize: 11
+      }
+    }, p.sku), /*#__PURE__*/React.createElement("td", {
+      className: "dim"
+    }, p.status), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmtNum(p.onHand)), /*#__PURE__*/React.createElement("td", {
+      className: "num dim"
+    }, fmtNum(p.reserved)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: p.available <= 0 ? 'var(--rose)' : 'var(--text)'
+      }
+    }, fmtNum(p.available)))))))), tableRows.length > 250 && /*#__PURE__*/React.createElement("div", {
+      className: "table-foot"
+    }, "Showing 250 of ", fmtNum(tableRows.length), " SKUs")));
+  })(), /*#__PURE__*/React.createElement(StickyFooter, {
     nav: NAV,
     active: ACTIVE,
     brands: distinct.brands,
