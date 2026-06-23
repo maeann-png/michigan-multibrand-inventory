@@ -1555,7 +1555,16 @@ function InventoryDashboard({
     stackId: "a",
     fill: "var(--text-faint)",
     radius: [3, 3, 0, 0]
-  })] : /*#__PURE__*/React.createElement(Bar, {
+  }, /*#__PURE__*/React.createElement(Recharts.LabelList, {
+    dataKey: "onHand",
+    position: "top",
+    formatter: fmtNum,
+    style: {
+      fontSize: 10,
+      fill: 'var(--text-dim)',
+      fontFamily: 'JetBrains Mono'
+    }
+  }))] : /*#__PURE__*/React.createElement(Bar, {
     dataKey: invMetric,
     name: invMetric === 'reserved' ? 'Reserved' : 'Available',
     radius: [3, 3, 0, 0],
@@ -1563,7 +1572,16 @@ function InventoryDashboard({
   }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: i,
     fill: brandColor(d.name)
-  })))))), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(Recharts.LabelList, {
+    dataKey: invMetric,
+    position: "top",
+    formatter: fmtNum,
+    style: {
+      fontSize: 10,
+      fill: 'var(--text-dim)',
+      fontFamily: 'JetBrains Mono'
+    }
+  }))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: 0,
