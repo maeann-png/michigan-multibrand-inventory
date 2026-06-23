@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>MedFarms · Accounts Receivable</title>
+<title>MedFarms · Inventory</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1239,7 +1239,7 @@ function Pager({
 }
 
 /* =====================================================================
-   ACCOUNTS RECEIVABLE DASHBOARD
+   INVENTORY DASHBOARD  (uses data.inventory array)
    ===================================================================== */
 const NAV = [{
   key: 'sales',
@@ -1258,7 +1258,7 @@ const NAV = [{
   label: 'By Rep',
   href: 'https://maeann-png.github.io/michigan-multibrand-rep/'
 }];
-const ACTIVE = 'ar';
+const ACTIVE = 'inventory';
 function BottomNav() {
   return /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
@@ -1268,25 +1268,16 @@ function BottomNav() {
     className: 'bn-tab' + (n.key === ACTIVE ? ' bn-active' : '')
   }, n.label)));
 }
-const termDays = term => {
-  const m = String(term || '').trim().toLowerCase().match(/net\s*(\d+)/);
-  return m ? +m[1] : 0;
-};
-// Only consider invoices on/after this date (client-side floor, independent of the scraper window)
-const AR_FROM_FLOOR = '2025-01-01';
 function App() {
   const {
     data,
     error
   } = useData('sales_data.json.gz');
-  const [scope, setScope] = useState('total');
-  const [grouping, setGrouping] = useState('month');
   const [filters, setFilters] = useState({
-    rep: '',
-    buyer: '',
     brand: '',
-    bucket: '',
-    search: ''
+    status: '',
+    search: '',
+    stock: ''
   });
   if (error) return /*#__PURE__*/React.createElement("div", {
     className: "app"
@@ -1302,184 +1293,133 @@ function App() {
   if (!data) return /*#__PURE__*/React.createElement("div", {
     className: "app"
   }, /*#__PURE__*/React.createElement(Spinner, null));
-  return /*#__PURE__*/React.createElement(ARDashboard, {
+  return /*#__PURE__*/React.createElement(InventoryDashboard, {
     data: data,
-    scope: scope,
-    setScope: setScope,
-    grouping: grouping,
-    setGrouping: setGrouping,
     filters: filters,
     setFilters: setFilters
   });
 }
-function ARDashboard({
+function InventoryDashboard({
   data,
-  scope,
-  setScope,
-  grouping,
-  setGrouping,
   filters,
   setFilters
 }) {
-  const rows = data.rows || [];
-  const normalized = useMemo(() => normalizeRows(rows), [rows]);
+  const [invMetric, setInvMetric] = useState('onhand');
+  const raw = data.inventory || [];
   const asOf = useMemo(() => data.fetched_at ? new Date(data.fetched_at) : new Date(), [data]);
-
-  // one record per UNPAID order, aged
-  const allInvoices = useMemo(() => {
-    const m = {};
-    normalized.forEach(r => {
-      if (r._bucket === 'excluded' || r._excludedStatus || r.paid === true) return;
-      if (r._date && ymd(r._date) < AR_FROM_FLOOR) return;
-      const id = r._id;
-      if (!id) return;
-      if (!m[id]) {
-        const due = r._date ? new Date(r._date.getTime() + termDays(r.payment_term) * 86400000) : null;
-        const days = due ? daysBetween(asOf, due) : 0;
-        m[id] = {
-          id,
-          invoice: r.order_number || id,
-          buyer: r.buyer_name || '—',
-          rep: r._rep,
-          scope: r._bucket,
-          _date: r._date,
-          date: r._date ? ymd(r._date) : '—',
-          due: due ? ymd(due) : '—',
-          days,
-          status: r.payment_status || 'Unpaid',
-          brands: new Set(),
-          outstanding: 0
-        };
-      }
-      r._primaries.forEach(b => m[id].brands.add(b));
-      if (r._hasOther) m[id].brands.add('Other Brands');
-      m[id].outstanding += r._revenue;
-    });
-    return Object.values(m).map(o => ({
-      ...o,
-      brands: [...o.brands],
-      bucket: agingBucket(o.days)
-    }));
-  }, [normalized, asOf]);
-  const inScope = o => scope === 'total' ? o.scope === 'wholesale' || o.scope === 'internal' : scope === 'external' ? o.scope === 'wholesale' : o.scope === 'internal';
-
-  // scope card values (respect every filter except scope)
-  const preScope = useMemo(() => allInvoices.filter(o => {
-    if (filters.rep && o.rep !== filters.rep) return false;
-    if (filters.buyer && o.buyer !== filters.buyer) return false;
-    if (filters.brand && !o.brands.includes(filters.brand)) return false;
-    if (filters.bucket && o.bucket.key !== filters.bucket) return false;
+  const items = useMemo(() => raw.map(p => {
+    const onHand = +p.inventory || 0;
+    const reserved = +p.reserved || 0;
+    const available = p.available != null ? +p.available || 0 : p.avail != null ? +p.avail || 0 : onHand - reserved;
+    return {
+      id: p.id,
+      sku: p.sku,
+      name: p.name || '—',
+      line: p.line || '—',
+      status: p.status || '—',
+      brand: p.brand || '—',
+      onHand,
+      reserved,
+      available
+    };
+  }), [raw]);
+  const distinct = useMemo(() => ({
+    brands: PRIMARY_BRANDS.filter(b => items.some(p => p.brand === b)),
+    statuses: [...new Set(items.map(p => p.status).filter(Boolean))].sort()
+  }), [items]);
+  const filtered = useMemo(() => items.filter(p => {
+    if (filters.brand && p.brand !== filters.brand) return false;
+    if (filters.status === 'Reserved') {
+      if (p.reserved <= 0) return false;
+    } else if (filters.status && p.status !== filters.status) return false;
+    if (filters.stock === 'in' && p.onHand <= 0) return false;
+    if (filters.stock === 'out' && p.onHand > 0) return false;
     if (filters.search) {
       const q = filters.search.toLowerCase();
-      if (!(o.invoice + ' ' + o.buyer + ' ' + o.rep).toLowerCase().includes(q)) return false;
+      if (!(p.name + ' ' + p.sku + ' ' + p.brand).toLowerCase().includes(q)) return false;
     }
     return true;
-  }), [allInvoices, filters]);
-  const scopeValues = useMemo(() => {
-    let e = 0,
-      i = 0;
-    preScope.forEach(o => {
-      if (o.scope === 'wholesale') e += o.outstanding;else if (o.scope === 'internal') i += o.outstanding;
-    });
+  }), [items, filters]);
+  const kpis = useMemo(() => {
+    const onHand = filtered.reduce((s, p) => s + p.onHand, 0);
+    const reserved = filtered.reduce((s, p) => s + p.reserved, 0);
+    const available = filtered.reduce((s, p) => s + p.available, 0);
+    const oos = filtered.filter(p => p.onHand <= 0).length;
     return {
-      external: e,
-      internal: i,
-      total: e + i
+      onHand,
+      reserved,
+      available,
+      oos,
+      skus: filtered.length
     };
-  }, [preScope]);
-  const filtered = useMemo(() => preScope.filter(inScope), [preScope, scope]);
-  const distinct = useMemo(() => ({
-    reps: [...new Set([...REP_ROSTER, ...allInvoices.map(o => o.rep).filter(Boolean)])].sort(),
-    buyers: [...new Set(allInvoices.map(o => o.buyer).filter(Boolean))].sort(),
-    brands: PRIMARY_BRANDS.filter(b => allInvoices.some(o => o.brands.includes(b)))
-  }), [allInvoices]);
-  const totals = useMemo(() => {
-    const t = {
-      total: 0,
-      count: filtered.length
-    };
-    AGING.forEach(b => t[b.key] = 0);
-    filtered.forEach(o => {
-      t.total += o.outstanding;
-      t[o.bucket.key] += o.outstanding;
-    });
-    return t;
   }, [filtered]);
-  const byRep = useMemo(() => {
+
+  // Out-of-stock products (zero on hand) — respects brand + search, ignores the stock dropdown
+  const oosItems = useMemo(() => items.filter(p => {
+    if (p.onHand > 0) return false;
+    if (filters.brand && p.brand !== filters.brand) return false;
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      if (!(p.name + ' ' + p.sku + ' ' + p.brand).toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || '')), [items, filters.brand, filters.search]);
+  const byBrand = useMemo(() => {
     const m = {};
-    filtered.forEach(o => {
-      if (!m[o.rep]) {
-        m[o.rep] = {
-          name: o.rep,
-          total: 0
-        };
-        AGING.forEach(b => m[o.rep][b.key] = 0);
-      }
-      m[o.rep].total += o.outstanding;
-      m[o.rep][o.bucket.key] += o.outstanding;
-    });
-    return Object.values(m).sort((a, b) => b.total - a.total);
-  }, [filtered]);
-  const byBuyer = useMemo(() => {
-    const m = {};
-    filtered.forEach(o => {
-      if (!m[o.buyer]) m[o.buyer] = {
-        name: o.buyer,
-        value: 0
+    filtered.forEach(p => {
+      if (!m[p.brand]) m[p.brand] = {
+        name: p.brand,
+        onHand: 0,
+        reserved: 0,
+        available: 0,
+        skus: 0
       };
-      m[o.buyer].value += o.outstanding;
+      m[p.brand].onHand += p.onHand;
+      m[p.brand].reserved += p.reserved;
+      m[p.brand].available += p.available;
+      m[p.brand].skus += 1;
     });
-    return Object.values(m).sort((a, b) => b.value - a.value);
+    return Object.values(m).sort((a, b) => b.onHand - a.onHand);
   }, [filtered]);
-  const agingPie = AGING.map(b => ({
-    name: b.label,
-    value: totals[b.key],
-    color: b.color
-  })).filter(d => d.value > 0);
-  const series = useMemo(() => {
-    const m = {};
-    filtered.forEach(o => {
-      if (!o._date) return;
-      let k;
-      if (grouping === 'day') k = ymd(o._date);else if (grouping === 'year') k = String(o._date.getFullYear());else k = o._date.getFullYear() + '-' + String(o._date.getMonth() + 1).padStart(2, '0');
-      m[k] = (m[k] || 0) + o.outstanding;
-    });
-    return Object.entries(m).map(([period, value]) => ({
-      period,
-      value
-    })).sort((a, b) => a.period.localeCompare(b.period));
-  }, [filtered, grouping]);
-  const sorted = useMemo(() => filtered.slice().sort((a, b) => b.days - a.days), [filtered]);
-  const buyerPager = usePager(byBuyer, 12);
-  const invPager = usePager(sorted, 25);
   const reset = () => setFilters({
-    rep: '',
-    buyer: '',
     brand: '',
-    bucket: '',
-    search: ''
+    status: '',
+    search: '',
+    stock: ''
   });
   const upd = (k, v) => setFilters(f => ({
     ...f,
     [k]: v
   }));
+  if (!raw.length) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "app",
+      style: {
+        paddingBottom: 110
+      }
+    }, /*#__PURE__*/React.createElement(Topbar, {
+      section: "Inventory",
+      fetchedAt: asOf
+    }), /*#__PURE__*/React.createElement(Empty, {
+      title: "No inventory loaded yet"
+    }, /*#__PURE__*/React.createElement("p", null, "The scraper hasn\u2019t populated the ", /*#__PURE__*/React.createElement("code", null, "inventory"), " array. Run it with ", /*#__PURE__*/React.createElement("code", null, "LEAFLINK_PULL_INVENTORY=1"), ".")), /*#__PURE__*/React.createElement(StickyFooter, {
+      nav: NAV,
+      active: ACTIVE,
+      brands: distinct.brands,
+      brand: filters.brand,
+      onBrand: b => upd('brand', b)
+    }));
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "app",
     style: {
       paddingBottom: 110
     }
   }, /*#__PURE__*/React.createElement(Topbar, {
-    section: "Account Receivables",
+    section: "Inventory",
     fetchedAt: asOf,
-    right: /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("strong", null, fmtNum(totals.count)), " open invoices")
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: 'JetBrains Mono, monospace',
-      fontSize: 11,
-      color: 'var(--text-dim)',
-      marginBottom: 16
-    }
-  }, "Aged as of ", ymd(asOf), " \xB7 due = invoice date + payment term \xB7 outstanding = net of unpaid orders"), /*#__PURE__*/React.createElement(BrandButtons, {
+    right: /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.skus)), " SKUs")
+  }), /*#__PURE__*/React.createElement(BrandButtons, {
     brands: distinct.brands,
     value: filters.brand,
     onChange: b => upd('brand', b)
@@ -1489,208 +1429,101 @@ function ARDashboard({
     className: "filter-group"
   }, /*#__PURE__*/React.createElement("label", {
     className: "filter-label"
-  }, "Sales Rep"), /*#__PURE__*/React.createElement("select", {
+  }, "Stock"), /*#__PURE__*/React.createElement("select", {
     className: "filter-select",
-    value: filters.rep,
-    onChange: e => upd('rep', e.target.value)
+    value: filters.stock,
+    onChange: e => upd('stock', e.target.value)
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
-  }, "All"), distinct.reps.map(b => /*#__PURE__*/React.createElement("option", {
-    key: b
-  }, b)))), /*#__PURE__*/React.createElement("div", {
-    className: "filter-group"
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "filter-label"
-  }, "Buyer"), /*#__PURE__*/React.createElement("select", {
-    className: "filter-select",
-    value: filters.buyer,
-    onChange: e => upd('buyer', e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "All"), distinct.buyers.map(b => /*#__PURE__*/React.createElement("option", {
-    key: b
-  }, b)))), /*#__PURE__*/React.createElement("div", {
+  }, "All"), /*#__PURE__*/React.createElement("option", {
+    value: "in"
+  }, "In stock"), /*#__PURE__*/React.createElement("option", {
+    value: "out"
+  }, "Out of stock"))), /*#__PURE__*/React.createElement("div", {
     className: "filter-group",
     style: {
       minWidth: 220
     }
   }, /*#__PURE__*/React.createElement("label", {
     className: "filter-label"
-  }, "Aging"), /*#__PURE__*/React.createElement("div", {
-    className: "aging-btns"
-  }, AGING.map(a => /*#__PURE__*/React.createElement("button", {
-    key: a.key,
-    className: 'aging-btn' + (filters.bucket === a.key ? ' aging-btn-active' : ''),
-    style: filters.bucket === a.key ? {
-      background: a.color,
-      borderColor: a.color,
-      color: textOn(a.color)
-    } : {
-      borderColor: a.color,
-      color: a.color
-    },
-    onClick: () => upd('bucket', filters.bucket === a.key ? '' : a.key)
-  }, a.label.replace(' days', ''))))), /*#__PURE__*/React.createElement("div", {
-    className: "filter-group",
-    style: {
-      minWidth: 170
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "filter-label"
   }, "Search"), /*#__PURE__*/React.createElement("input", {
     type: "text",
     className: "filter-input",
-    placeholder: "invoice / buyer / rep\u2026",
+    placeholder: "product / sku / brand\u2026",
     value: filters.search,
     onChange: e => upd('search', e.target.value)
   })), /*#__PURE__*/React.createElement("button", {
     className: "filter-reset filter-reset-lg",
     onClick: reset
-  }, "Reset")), /*#__PURE__*/React.createElement(ScopeCards, {
-    scope: scope,
-    setScope: setScope,
-    values: scopeValues,
-    sub: "outstanding \xB7 unpaid"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "aging-grid",
-    style: {
-      gridTemplateColumns: 'repeat(5,1fr)'
-    }
+  }, "Reset")), /*#__PURE__*/React.createElement("div", {
+    className: "kpi-grid"
   }, /*#__PURE__*/React.createElement(Kpi, {
-    label: "Total Outstanding",
-    value: fmtMoney(totals.total),
-    sub: fmtNum(totals.count) + ' invoices',
+    label: "Units On Hand",
+    value: fmtNum(kpis.onHand),
+    sub: fmtNum(kpis.skus) + ' SKUs',
     accent: true
-  }), AGING.map(b => /*#__PURE__*/React.createElement("button", {
-    key: b.key,
-    className: 'aging-card' + (filters.bucket === b.key ? ' aging-card-active' : ''),
-    style: {
-      borderTop: '2px solid ' + b.color
-    },
-    onClick: () => upd('bucket', filters.bucket === b.key ? '' : b.key)
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "kpi-label",
-    style: {
-      color: b.color
-    }
-  }, b.label), /*#__PURE__*/React.createElement("div", {
-    className: "kpi-value tabular",
-    style: {
-      fontSize: 26
-    }
-  }, fmtMoney(totals[b.key])), /*#__PURE__*/React.createElement("div", {
-    className: "kpi-sub"
-  }, totals.total ? (totals[b.key] / totals.total * 100).toFixed(1) + '% of AR' : '—')))), /*#__PURE__*/React.createElement("section", {
+  }), /*#__PURE__*/React.createElement(Kpi, {
+    label: "Reserved",
+    value: fmtNum(kpis.reserved),
+    sub: "committed to orders"
+  }), /*#__PURE__*/React.createElement(Kpi, {
+    label: "Available",
+    value: fmtNum(kpis.available),
+    sub: "on hand \u2212 reserved"
+  }), /*#__PURE__*/React.createElement(Kpi, {
+    label: "Out of Stock",
+    value: fmtNum(kpis.oos),
+    sub: "SKUs with 0 on hand",
+    color: kpis.oos ? 'var(--rose)' : null
+  })), /*#__PURE__*/React.createElement("section", {
     className: "section"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "grid-half"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "Aging",
-    em: "mix",
-    meta: "by bucket"
-  }), /*#__PURE__*/React.createElement("div", {
+    className: "section-header"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "section-title"
+  }, invMetric === 'reserved' ? 'Reserved' : invMetric === 'available' ? 'Available' : 'On hand', " ", /*#__PURE__*/React.createElement("em", null, "by brand")), /*#__PURE__*/React.createElement("div", {
+    className: "seg"
+  }, [['onhand', 'On hand'], ['available', 'Available'], ['reserved', 'Reserved']].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
+    key: k,
+    className: 'seg-btn' + (invMetric === k ? ' seg-active' : ''),
+    onClick: () => setInvMetric(k)
+  }, l)))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
-      height: 320,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }
-  }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
-    width: "100%",
-    height: "100%"
-  }, /*#__PURE__*/React.createElement(PieChart, null, /*#__PURE__*/React.createElement(Pie, {
-    data: agingPie,
-    dataKey: "value",
-    nameKey: "name",
-    cx: "50%",
-    cy: "50%",
-    innerRadius: 62,
-    outerRadius: 110,
-    paddingAngle: 2,
-    stroke: "var(--bg)",
-    strokeWidth: 2
-  }, agingPie.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
-    key: i,
-    fill: d.color
-  }))), /*#__PURE__*/React.createElement(Tooltip, {
-    contentStyle: {
-      background: 'var(--bg-elev)',
-      border: '1px solid var(--border)',
-      borderRadius: 8,
-      fontSize: 12
-    },
-    formatter: v => fmtMoneyFull(v)
-  }), /*#__PURE__*/React.createElement(Legend, {
-    verticalAlign: "bottom",
-    iconType: "square",
-    wrapperStyle: {
-      fontSize: 11,
-      fontFamily: 'JetBrains Mono',
-      color: 'var(--text-dim)'
-    }
-  }))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "Top",
-    em: "balances",
-    meta: fmtNum(byBuyer.length) + " buyers"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "card",
-    style: {
-      padding: 0
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 24
-    }
-  }, /*#__PURE__*/React.createElement(RankList, {
-    data: buyerPager.slice
-  })), /*#__PURE__*/React.createElement(Pager, {
-    pager: buyerPager
-  }))))), /*#__PURE__*/React.createElement("section", {
-    className: "section"
-  }, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "Outstanding",
-    em: "by rep",
-    meta: byRep.length + ' reps'
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "card",
-    style: {
-      height: 340
+      height: 300
     }
   }, /*#__PURE__*/React.createElement(ResponsiveContainer, {
     width: "100%",
     height: "100%"
   }, /*#__PURE__*/React.createElement(BarChart, {
-    data: byRep,
-    layout: "vertical",
+    data: invMetric === 'onhand' ? byBrand : byBrand.slice().sort((a, b) => b[invMetric] - a[invMetric]),
     margin: {
-      top: 8,
-      right: 16,
-      left: 8,
-      bottom: 8
+      top: 12,
+      right: 12,
+      left: 4,
+      bottom: 0
     }
   }, /*#__PURE__*/React.createElement(CartesianGrid, {
     stroke: "var(--border-soft)",
     strokeDasharray: "2 2",
-    horizontal: false
+    vertical: false
   }), /*#__PURE__*/React.createElement(XAxis, {
-    type: "number",
-    stroke: "var(--text-faint)",
-    tick: {
-      fontSize: 11,
-      fontFamily: 'JetBrains Mono'
-    },
-    tickFormatter: fmtMoney,
-    axisLine: false,
-    tickLine: false
-  }), /*#__PURE__*/React.createElement(YAxis, {
-    type: "category",
     dataKey: "name",
     stroke: "var(--text-faint)",
     tick: {
       fontSize: 11
     },
-    width: 130,
+    axisLine: {
+      stroke: 'var(--border)'
+    },
+    tickLine: false
+  }), /*#__PURE__*/React.createElement(YAxis, {
+    stroke: "var(--text-faint)",
+    tick: {
+      fontSize: 11,
+      fontFamily: 'JetBrains Mono'
+    },
+    tickFormatter: fmtNum,
     axisLine: false,
     tickLine: false
   }), /*#__PURE__*/React.createElement(Tooltip, {
@@ -1700,25 +1533,139 @@ function ARDashboard({
       borderRadius: 8,
       fontSize: 12
     },
-    formatter: (v, n) => [fmtMoneyFull(v), n]
+    formatter: (v, n) => [fmtNum(v), n]
   }), /*#__PURE__*/React.createElement(Legend, {
     wrapperStyle: {
       fontSize: 11,
       fontFamily: 'JetBrains Mono'
     }
-  }), AGING.map(b => /*#__PURE__*/React.createElement(Bar, {
-    key: b.key,
-    dataKey: b.key,
-    name: b.label,
+  }), invMetric === 'onhand' ? [/*#__PURE__*/React.createElement(Bar, {
+    key: "a",
+    dataKey: "available",
+    name: "Available",
     stackId: "a",
-    fill: b.color,
-    radius: [0, 2, 2, 0]
-  })))))), /*#__PURE__*/React.createElement("section", {
+    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)'
+  }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: i,
+    fill: brandColor(d.name)
+  }))), /*#__PURE__*/React.createElement(Bar, {
+    key: "r",
+    dataKey: "reserved",
+    name: "Reserved",
+    stackId: "a",
+    fill: "var(--text-faint)",
+    radius: [3, 3, 0, 0]
+  })] : /*#__PURE__*/React.createElement(Bar, {
+    dataKey: invMetric,
+    name: invMetric === 'reserved' ? 'Reserved' : 'Available',
+    radius: [3, 3, 0, 0],
+    fill: filters.brand ? brandColor(filters.brand) : 'var(--accent)'
+  }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
+    key: i,
+    fill: brandColor(d.name)
+  })))))), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 0,
+      overflow: 'hidden',
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "data-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Available"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "SKUs"))), /*#__PURE__*/React.createElement("tbody", null, byBrand.map((b, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      color: brandColor(b.name)
+    }
+  }, brandLabel(b.name)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(b.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(b.reserved)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, fmtNum(b.available)), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(b.skus)))), /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderTop: '2px solid var(--border)'
+    }
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, "Total")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.reserved))), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.available))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.skus)))))))), (() => {
+    const mk = invMetric === 'reserved' ? 'reserved' : invMetric === 'available' ? 'available' : 'onHand';
+    const tableRows = filtered.filter(p => invMetric === 'onhand' ? true : p[mk] > 0).slice().sort((a, b) => b[mk] - a[mk]);
+    return /*#__PURE__*/React.createElement("section", {
+      className: "section"
+    }, /*#__PURE__*/React.createElement(SectionHeader, {
+      title: "Product",
+      em: "inventory",
+      meta: fmtNum(tableRows.length) + ' SKUs' + (invMetric !== 'onhand' ? ' \u00b7 ' + (invMetric === 'reserved' ? 'reserved' : 'available') : '')
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "card",
+      style: {
+        padding: 0,
+        overflow: 'hidden'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        overflowX: 'auto',
+        maxHeight: 560
+      }
+    }, /*#__PURE__*/React.createElement("table", {
+      className: "data-table"
+    }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Product"), /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", null, "SKU"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "On Hand"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+      className: "num"
+    }, "Available"))), /*#__PURE__*/React.createElement("tbody", null, tableRows.slice(0, 250).map((p, i) => /*#__PURE__*/React.createElement("tr", {
+      key: i
+    }, /*#__PURE__*/React.createElement("td", null, p.name), /*#__PURE__*/React.createElement("td", {
+      style: {
+        color: brandColor(p.brand)
+      }
+    }, p.brand), /*#__PURE__*/React.createElement("td", {
+      className: "dim font-mono",
+      style: {
+        fontSize: 11
+      }
+    }, p.sku), /*#__PURE__*/React.createElement("td", {
+      className: "dim"
+    }, p.status), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, fmtNum(p.onHand)), /*#__PURE__*/React.createElement("td", {
+      className: "num dim"
+    }, fmtNum(p.reserved)), /*#__PURE__*/React.createElement("td", {
+      className: "num"
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: p.available <= 0 ? 'var(--rose)' : 'var(--text)'
+      }
+    }, fmtNum(p.available)))))))), tableRows.length > 250 && /*#__PURE__*/React.createElement("div", {
+      className: "table-foot"
+    }, "Showing 250 of ", fmtNum(tableRows.length), " SKUs")));
+  })(), /*#__PURE__*/React.createElement("section", {
     className: "section"
   }, /*#__PURE__*/React.createElement(SectionHeader, {
-    title: "Open",
-    em: "invoices",
-    meta: fmtNum(filtered.length) + ' invoices · oldest first'
+    title: "Out of stock",
+    em: "products",
+    meta: fmtNum(oosItems.length) + ' SKUs with 0 on hand'
   }), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -1728,50 +1675,46 @@ function ARDashboard({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       overflowX: 'auto',
-      maxHeight: 520
+      maxHeight: 480
     }
   }, /*#__PURE__*/React.createElement("table", {
     className: "data-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Invoice #"), /*#__PURE__*/React.createElement("th", null, "Buyer"), /*#__PURE__*/React.createElement("th", null, "Rep"), /*#__PURE__*/React.createElement("th", null, "Brands"), /*#__PURE__*/React.createElement("th", null, "Invoice"), /*#__PURE__*/React.createElement("th", null, "Due"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Product"), /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", null, "SKU"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", {
     className: "num"
-  }, "Days Past"), /*#__PURE__*/React.createElement("th", null, "Aging"), /*#__PURE__*/React.createElement("th", {
+  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
     className: "num"
-  }, "Outstanding"))), /*#__PURE__*/React.createElement("tbody", null, invPager.slice.map((o, i) => /*#__PURE__*/React.createElement("tr", {
+  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Available"))), /*#__PURE__*/React.createElement("tbody", null, oosItems.map((p, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "font-mono",
+  }, /*#__PURE__*/React.createElement("td", null, p.name), /*#__PURE__*/React.createElement("td", {
     style: {
-      color: 'var(--accent)'
+      color: brandColor(p.brand)
     }
-  }, o.invoice), /*#__PURE__*/React.createElement("td", null, o.buyer), /*#__PURE__*/React.createElement("td", {
+  }, brandLabel(p.brand)), /*#__PURE__*/React.createElement("td", {
+    className: "dim font-mono",
+    style: {
+      fontSize: 11
+    }
+  }, p.sku), /*#__PURE__*/React.createElement("td", {
     className: "dim"
-  }, o.rep), /*#__PURE__*/React.createElement("td", null, o.brands.map((b, j) => /*#__PURE__*/React.createElement("span", {
-    key: j,
-    className: "chip",
-    style: {
-      color: brandColor(b),
-      borderColor: brandColor(b)
-    }
-  }, brandLabel(b)))), /*#__PURE__*/React.createElement("td", {
-    className: "dim font-mono"
-  }, o.date), /*#__PURE__*/React.createElement("td", {
-    className: "dim font-mono"
-  }, o.due), /*#__PURE__*/React.createElement("td", {
+  }, p.status), /*#__PURE__*/React.createElement("td", {
     className: "num",
     style: {
-      color: o.bucket.color
+      color: 'var(--rose)'
     }
-  }, o.days), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-    className: "pill",
-    style: {
-      color: o.bucket.color,
-      borderColor: o.bucket.color
-    }
-  }, o.bucket.label)), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(p.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(p.reserved)), /*#__PURE__*/React.createElement("td", {
     className: "num"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtMoneyFull(o.outstanding)))))))), /*#__PURE__*/React.createElement(Pager, {
-    pager: invPager
-  }))), /*#__PURE__*/React.createElement(StickyFooter, {
+  }, fmtNum(p.available)))), oosItems.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: "7",
+    style: {
+      textAlign: 'center',
+      padding: '28px',
+      color: 'var(--text-faint)'
+    }
+  }, "Nothing out of stock \u2014 every SKU has units on hand"))))))), /*#__PURE__*/React.createElement(StickyFooter, {
     nav: NAV,
     active: ACTIVE,
     brands: distinct.brands,
