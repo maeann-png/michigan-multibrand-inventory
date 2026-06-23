@@ -442,6 +442,9 @@
 .bn-back { color: var(--text); border-color: var(--accent); font-weight: 600; }
 .bn-back:hover { background: var(--accent-deep); color: #fff !important; border-color: var(--accent); }
 
+/* Scope-card caption */
+.scope-sub { margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .04em; color: var(--text-faint); }
+
 </style>
 </head>
 <body>
@@ -605,6 +608,61 @@ const RECENCY_LABEL = {
   b91: '90+ days'
 };
 const SERIES_COLORS = ["#4b2e83", "#6a2f9e", "#8e2f9e", "#a82d8a", "#c23a5e", "#7c3aed", "#b0317a", "#c084fc"];
+// High-contrast palette (distinct hues) for category mixes and multi-year lines
+const CONTRAST = ["#2563eb", "#e0792a", "#16a34a", "#dc2626", "#7c3aed", "#0891b2", "#ca8a04", "#db2777", "#0d9488", "#9333ea", "#65a30d", "#be123c"];
+// Quick date ranges (anchored to today)
+const QUICK_RANGES = [{
+  key: 'today',
+  label: 'Today'
+}, {
+  key: 'week',
+  label: 'Last week'
+}, {
+  key: '30',
+  label: '30 days'
+}, {
+  key: '90',
+  label: '90 days'
+}, {
+  key: 'ytd',
+  label: 'YTD'
+}];
+const quickRangeDates = key => {
+  const t = new Date();
+  const to = ymd(t);
+  const back = n => {
+    const x = new Date(t);
+    x.setDate(x.getDate() - n);
+    return ymd(x);
+  };
+  if (key === 'today') return {
+    from: to,
+    to
+  };
+  if (key === 'week') return {
+    from: back(7),
+    to
+  };
+  if (key === '30') return {
+    from: back(30),
+    to
+  };
+  if (key === '90') return {
+    from: back(90),
+    to
+  };
+  if (key === 'ytd') return {
+    from: ymd(new Date(t.getFullYear(), 0, 1)),
+    to
+  };
+  return {
+    from: '',
+    to: ''
+  };
+};
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Canonical sales-rep roster (always offered in rep filters/tabs even if absent from a given slice)
+const REP_ROSTER = ["Toby Kassa", "Darren Dabish", "Steve Kirma", "Cristina Moceri", "Shawn Dabish"];
 const isPrimaryName = b => PRIMARY_BRANDS.includes((b || "").trim());
 const otherName = raw => {
   const b = (raw || "").trim();
@@ -840,7 +898,8 @@ function ScopeCards({
   scope,
   setScope,
   values,
-  fmt
+  fmt,
+  sub
 }) {
   const f = fmt || fmtMoney;
   const items = [['external', 'External'], ['internal', 'Internal'], ['total', 'Total']];
@@ -854,7 +913,9 @@ function ScopeCards({
     className: "scope-label"
   }, l), /*#__PURE__*/React.createElement("div", {
     className: "scope-value tabular"
-  }, f(values[k] || 0)))));
+  }, f(values[k] || 0)), sub && /*#__PURE__*/React.createElement("div", {
+    className: "scope-sub"
+  }, sub))));
 }
 
 /* ---- Colored brand filter buttons ----------------------------------- */
@@ -1271,8 +1332,8 @@ function InventoryDashboard({
     if (filters.status === 'Reserved') {
       if (p.reserved <= 0) return false;
     } else if (filters.status && p.status !== filters.status) return false;
-    if (filters.stock === 'in' && p.available <= 0) return false;
-    if (filters.stock === 'out' && p.available > 0) return false;
+    if (filters.stock === 'in' && p.onHand <= 0) return false;
+    if (filters.stock === 'out' && p.onHand > 0) return false;
     if (filters.search) {
       const q = filters.search.toLowerCase();
       if (!(p.name + ' ' + p.sku + ' ' + p.brand).toLowerCase().includes(q)) return false;
@@ -1283,7 +1344,7 @@ function InventoryDashboard({
     const onHand = filtered.reduce((s, p) => s + p.onHand, 0);
     const reserved = filtered.reduce((s, p) => s + p.reserved, 0);
     const available = filtered.reduce((s, p) => s + p.available, 0);
-    const oos = filtered.filter(p => p.available <= 0).length;
+    const oos = filtered.filter(p => p.onHand <= 0).length;
     return {
       onHand,
       reserved,
@@ -1292,6 +1353,17 @@ function InventoryDashboard({
       skus: filtered.length
     };
   }, [filtered]);
+
+  // Out-of-stock products (zero on hand) — respects brand + search, ignores the stock dropdown
+  const oosItems = useMemo(() => items.filter(p => {
+    if (p.onHand > 0) return false;
+    if (filters.brand && p.brand !== filters.brand) return false;
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      if (!(p.name + ' ' + p.sku + ' ' + p.brand).toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || '')), [items, filters.brand, filters.search]);
   const byBrand = useMemo(() => {
     const m = {};
     filtered.forEach(p => {
@@ -1401,7 +1473,7 @@ function InventoryDashboard({
   }), /*#__PURE__*/React.createElement(Kpi, {
     label: "Out of Stock",
     value: fmtNum(kpis.oos),
-    sub: "SKUs with 0 available",
+    sub: "SKUs with 0 on hand",
     color: kpis.oos ? 'var(--rose)' : null
   })), /*#__PURE__*/React.createElement("section", {
     className: "section"
@@ -1491,7 +1563,50 @@ function InventoryDashboard({
   }, byBrand.map((d, i) => /*#__PURE__*/React.createElement(Cell, {
     key: i,
     fill: brandColor(d.name)
-  }))))))), (() => {
+  })))))), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 0,
+      overflow: 'hidden',
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "data-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Available"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "SKUs"))), /*#__PURE__*/React.createElement("tbody", null, byBrand.map((b, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", {
+    style: {
+      color: brandColor(b.name)
+    }
+  }, brandLabel(b.name)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(b.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(b.reserved)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, fmtNum(b.available)), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(b.skus)))), /*#__PURE__*/React.createElement("tr", {
+    style: {
+      borderTop: '2px solid var(--border)'
+    }
+  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, "Total")), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.reserved))), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.available))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.skus)))))))), (() => {
     const mk = invMetric === 'reserved' ? 'reserved' : invMetric === 'available' ? 'available' : 'onHand';
     const tableRows = filtered.filter(p => invMetric === 'onhand' ? true : p[mk] > 0).slice().sort((a, b) => b[mk] - a[mk]);
     return /*#__PURE__*/React.createElement("section", {
@@ -1545,7 +1660,61 @@ function InventoryDashboard({
     }, fmtNum(p.available)))))))), tableRows.length > 250 && /*#__PURE__*/React.createElement("div", {
       className: "table-foot"
     }, "Showing 250 of ", fmtNum(tableRows.length), " SKUs")));
-  })(), /*#__PURE__*/React.createElement(StickyFooter, {
+  })(), /*#__PURE__*/React.createElement("section", {
+    className: "section"
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    title: "Out of stock",
+    em: "products",
+    meta: fmtNum(oosItems.length) + ' SKUs with 0 on hand'
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      padding: 0,
+      overflow: 'hidden'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: 'auto',
+      maxHeight: 480
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "data-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Product"), /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", null, "SKU"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
+    className: "num"
+  }, "Available"))), /*#__PURE__*/React.createElement("tbody", null, oosItems.map((p, i) => /*#__PURE__*/React.createElement("tr", {
+    key: i
+  }, /*#__PURE__*/React.createElement("td", null, p.name), /*#__PURE__*/React.createElement("td", {
+    style: {
+      color: brandColor(p.brand)
+    }
+  }, brandLabel(p.brand)), /*#__PURE__*/React.createElement("td", {
+    className: "dim font-mono",
+    style: {
+      fontSize: 11
+    }
+  }, p.sku), /*#__PURE__*/React.createElement("td", {
+    className: "dim"
+  }, p.status), /*#__PURE__*/React.createElement("td", {
+    className: "num",
+    style: {
+      color: 'var(--rose)'
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(p.onHand))), /*#__PURE__*/React.createElement("td", {
+    className: "num dim"
+  }, fmtNum(p.reserved)), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, fmtNum(p.available)))), oosItems.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: "7",
+    style: {
+      textAlign: 'center',
+      padding: '28px',
+      color: 'var(--text-faint)'
+    }
+  }, "Nothing out of stock \u2014 every SKU has units on hand"))))))), /*#__PURE__*/React.createElement(StickyFooter, {
     nav: NAV,
     active: ACTIVE,
     brands: distinct.brands,
