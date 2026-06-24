@@ -662,7 +662,7 @@ const quickRangeDates = key => {
 };
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 // Canonical sales-rep roster (always offered in rep filters/tabs even if absent from a given slice)
-const REP_ROSTER = ["Toby Kassa", "Darren Dabish", "Steve Kirma", "Cristina Moceri", "Shawn Dabish"];
+const REP_ROSTER = ["Towbey Kassa", "Darren Dabish", "Steven Kirma", "Cristina Moceri", "Shawn Dabish"];
 const isPrimaryName = b => PRIMARY_BRANDS.includes((b || "").trim());
 const otherName = raw => {
   const b = (raw || "").trim();
@@ -1129,7 +1129,10 @@ function StickyFooter({
   active,
   brands,
   brand,
-  onBrand
+  onBrand,
+  reps,
+  repValue,
+  onRep
 }) {
   const [show, setShow] = useState(false);
   useEffect(() => {
@@ -1143,7 +1146,27 @@ function StickyFooter({
   const list = (brands || []).filter(b => b !== '100 Shafer');
   return /*#__PURE__*/React.createElement("nav", {
     className: 'sticky-foot' + (show ? ' sticky-foot-show' : '')
-  }, onBrand && list.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, onRep ? /*#__PURE__*/React.createElement("div", {
+    className: "sf-brands"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: 'sf-brand sf-brand-all' + (repValue === '' ? ' sf-brand-active' : ''),
+    onClick: () => onRep('')
+  }, "All reps"), (reps || []).map(r => {
+    const on = repValue === r;
+    return /*#__PURE__*/React.createElement("button", {
+      key: r,
+      className: 'sf-brand' + (on ? ' sf-brand-active' : ''),
+      style: on ? {
+        background: 'var(--accent)',
+        borderColor: 'var(--accent)',
+        color: '#fff'
+      } : {
+        borderColor: 'var(--accent-dim)',
+        color: 'var(--text)'
+      },
+      onClick: () => onRep(on ? '' : r)
+    }, r);
+  })) : onBrand && list.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "sf-brands"
   }, /*#__PURE__*/React.createElement("button", {
     className: 'sf-brand sf-brand-all' + (brand === '' ? ' sf-brand-active' : ''),
@@ -1582,49 +1605,76 @@ function InventoryDashboard({
       fontFamily: 'JetBrains Mono'
     }
   }))))), /*#__PURE__*/React.createElement("div", {
-    className: "card",
+    className: "brand-cards",
     style: {
-      padding: 0,
-      overflow: 'hidden',
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+      gap: 14,
       marginTop: 16
     }
-  }, /*#__PURE__*/React.createElement("table", {
-    className: "data-table"
-  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Brand"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "On Hand"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Reserved"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "Available"), /*#__PURE__*/React.createElement("th", {
-    className: "num"
-  }, "SKUs"))), /*#__PURE__*/React.createElement("tbody", null, byBrand.map((b, i) => /*#__PURE__*/React.createElement("tr", {
-    key: i
-  }, /*#__PURE__*/React.createElement("td", {
+  }, byBrand.map((b, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    className: "card",
     style: {
+      padding: 18,
+      borderTop: '3px solid ' + brandColor(b.name)
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 600,
       color: brandColor(b.name)
     }
-  }, brandLabel(b.name)), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(b.onHand))), /*#__PURE__*/React.createElement("td", {
-    className: "num dim"
-  }, fmtNum(b.reserved)), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, fmtNum(b.available)), /*#__PURE__*/React.createElement("td", {
-    className: "num dim"
-  }, fmtNum(b.skus)))), /*#__PURE__*/React.createElement("tr", {
+  }, brandLabel(b.name)), /*#__PURE__*/React.createElement("span", {
+    className: "kpi-sub"
+  }, fmtNum(b.skus), " SKUs")), /*#__PURE__*/React.createElement("div", {
     style: {
-      borderTop: '2px solid var(--border)'
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '5px 0'
     }
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", null, "Total")), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.onHand))), /*#__PURE__*/React.createElement("td", {
-    className: "num dim"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.reserved))), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.available))), /*#__PURE__*/React.createElement("td", {
-    className: "num dim"
-  }, /*#__PURE__*/React.createElement("strong", null, fmtNum(kpis.skus)))))))), (() => {
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "kpi-sub"
+  }, "On hand"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono",
+    style: {
+      fontWeight: 600
+    }
+  }, fmtNum(b.onHand))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '5px 0'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "kpi-sub"
+  }, "Reserved"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono",
+    style: {
+      color: 'var(--text-dim)'
+    }
+  }, fmtNum(b.reserved))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '5px 0',
+      borderTop: '1px solid var(--border-soft)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "kpi-sub"
+  }, "Available"), /*#__PURE__*/React.createElement("span", {
+    className: "font-mono",
+    style: {
+      fontWeight: 600,
+      color: brandColor(b.name)
+    }
+  }, fmtNum(b.available))))))), (() => {
     const mk = invMetric === 'reserved' ? 'reserved' : invMetric === 'available' ? 'available' : 'onHand';
     const tableRows = filtered.filter(p => invMetric === 'onhand' ? true : p[mk] > 0).slice().sort((a, b) => b[mk] - a[mk]);
     return /*#__PURE__*/React.createElement("section", {
