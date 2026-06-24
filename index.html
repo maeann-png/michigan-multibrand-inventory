@@ -1282,6 +1282,8 @@ const NAV = [{
   href: 'https://maeann-png.github.io/michigan-multibrand-rep/'
 }];
 const ACTIVE = 'inventory';
+// Estimated average unit price from sales data (inventory has no price field; used for $ value estimation)
+const AVG_UNIT_PRICE = 56.05;
 function BottomNav() {
   return /*#__PURE__*/React.createElement("nav", {
     className: "bottom-nav"
@@ -1483,16 +1485,16 @@ function InventoryDashboard({
   }, /*#__PURE__*/React.createElement(Kpi, {
     label: "Units On Hand",
     value: fmtNum(kpis.onHand),
-    sub: fmtNum(kpis.skus) + ' SKUs',
+    sub: fmtNum(kpis.skus) + ' SKUs · ' + fmtMoney(kpis.onHand * AVG_UNIT_PRICE),
     accent: true
   }), /*#__PURE__*/React.createElement(Kpi, {
     label: "Reserved",
     value: fmtNum(kpis.reserved),
-    sub: "committed to orders"
+    sub: 'committed to orders · ' + fmtMoney(kpis.reserved * AVG_UNIT_PRICE)
   }), /*#__PURE__*/React.createElement(Kpi, {
     label: "Available",
     value: fmtNum(kpis.available),
-    sub: "on hand \u2212 reserved"
+    sub: 'on hand − reserved · ' + fmtMoney(kpis.available * AVG_UNIT_PRICE)
   }), /*#__PURE__*/React.createElement(Kpi, {
     label: "Out of Stock",
     value: fmtNum(kpis.oos),
